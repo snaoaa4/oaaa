@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+  <body>
+    <h2>Login</h2>
+    <% if (error) { %><p style="color:red;"><%= error %></p><% } %>
+
+    <form method="POST" action="/login">
+      <input name="email" placeholder="Email" />
+      <br /><br />
+      <input name="password" type="password" placeholder="Password" />
+      <br /><br />
+      <button type="submit">Login</button>
+    </form>
+
+    <p>Need access? Ask the admin for an invite code.</p>
+    <p><a href="/register">Have an invite code? Register</a></p>
+  </body>
+</html>

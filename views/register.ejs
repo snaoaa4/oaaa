@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <body>
+    <h2>Register (Invite Code Required)</h2>
+    <% if (error) { %><p style="color:red;"><%= error %></p><% } %>
+
+    <form method="POST" action="/register">
+      <input name="invite_code" placeholder="Invite code" />
+      <br /><br />
+      <input name="full_name" placeholder="Full name (optional)" />
+      <br /><br />
+      <input name="email" placeholder="Email" />
+      <br /><br />
+      <input name="password" type="password" placeholder="Password" />
+      <br /><br />
+      <button type="submit">Create Account</button>
+    </form>
+
+    <p><a href="/login">Back to login</a></p>
+  </body>
+</html>
