@@ -1,3 +1,27 @@
+const express = require("express");
+const path = require("path");
+
+const app = express();   // ✅ app must be created BEFORE app.get/app.use
+
+// ✅ Health route AFTER app is defined
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+// middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// serve your form page (adjust folder if yours is "views" instead of "public")
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// ... your /api/signins route etc ...
+
+// ✅ listen on Railway port
+const PORT = Number(process.env.PORT || 8080);
+app.listen(PORT, "0.0.0.0", () => console.log("Listening on", PORT));
+
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
