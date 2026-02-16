@@ -1,185 +1,149 @@
-const express = require("express");
+/**
+ * server.js — Public Sign-In App (Name, Phone, Email) + MySQL
+ * Works locally + Railway
+ */
+
+require("dotenv").config();
+
 const path = require("path");
+const express = require("express");
+const helmet = require("helmet");
+const cors = require("cors");
+const rateLimit = require("express-rate-limit");
+const mysql = require("mysql2/promise");
+const { z } = require("zod");
 
-const app = express();   // ✅ app must be created BEFORE app.get/app.use
+const app = express();
 
-// ✅ Health route AFTER app is defined
-app.get("/health", (req, res) => res.json({ ok: true }));
+/** -----------------------------
+ *  Config
+ * ------------------------------*/
+const PORT = Number(process.env.PORT || 8080);
+const HOST = "0.0.0.0";
 
-// middleware
+// Railway-provided MySQL vars OR local .env vars
+const dbConfig = {
+  host: process.env.MYSQLHOST || process.env.DB_HOST || "127.0.0.1",
+  port: Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
+  user: process.env.MYSQLUSER || process.env.DB_USER || "root",
+  password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || "",
+  database: process.env.MYSQLDATABASE || process.env.DB_NAME || "signin_db",
+  waitForConnections: true,
+  connectionLimit: 10,
+};
+
+// Helpful log (does NOT print password)
+console.log("DB:", {
+  host: dbConfig.host,
+  port: String(dbConfig.port),
+  user: dbConfig.user,
+  name: dbConfig.database,
+});
+
+/** -----------------------------
+ *  MySQL pool
+ * ------------------------------*/
+const pool = mysql.createPool(dbConfig);
+
+/** -----------------------------
+ *  Security + middleware
+ * ------------------------------*/
+app.use(
+  helmet({
+    // allow your simple inline assets if needed; keep default otherwise
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// serve your form page (adjust folder if yours is "views" instead of "public")
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "*",
+  })
+);
+
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000, // 1 min
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+
+/** -----------------------------
+ *  Public routes
+ * ------------------------------*/
+app.get("/health", async (req, res) => {
+  // Optional: also test DB connectivity quickly
+  try {
+    await pool.query("SELECT 1");
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, db: "down", error: e.message });
+  }
+});
+
+// Serve your static site from /public
 app.use(express.static(path.join(__dirname, "public")));
+
+// Home page
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ... your /api/signins route etc ...
-
-// ✅ listen on Railway port
-const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, "0.0.0.0", () => console.log("Listening on", PORT));
-
-app.get("/health", (req, res) => {
-  res.json({ ok: true });
+/** -----------------------------
+ *  API
+ * ------------------------------*/
+const SigninSchema = z.object({
+  full_name: z.string().trim().min(2).max(120),
+  phone: z.string().trim().min(7).max(30),
+  email: z.string().trim().email().max(190),
 });
 
-require("dotenv").config();
+app.post("/api/signins", async (req, res) => {
+  const parsed = SigninSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid input",
+      details: parsed.error.flatten(),
+    });
+  }
 
-const express = require("express");
-const session = require("express-session");
-const bcrypt = require("bcrypt");
-const pool = require("./db");
+  const { full_name, phone, email } = parsed.data;
 
-const app = express();
-
-app.set("view engine", "ejs");
-app.use(express.urlencoded({ extended: true }));
-
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "dev_secret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, sameSite: "lax" },
-  })
-);
-
-function requireLogin(req, res, next) {
-  if (!req.session.userId) return res.redirect("/login");
-  next();
-}
-
-app.get("/", (req, res) => {
-  if (req.session.userId) return res.redirect("/dashboard");
-  return res.redirect("/login");
-});
-
-app.get("/register", (req, res) => {
-  res.render("register", { error: null });
-});
-
-app.post("/register", async (req, res) => {
-  const conn = await pool.getConnection();
   try {
-    const { email, password, full_name, invite_code } = req.body;
+    const sql =
+      "INSERT INTO signins (full_name, phone, email) VALUES (?, ?, ?)";
+    const [result] = await pool.execute(sql, [full_name, phone, email]);
 
-    if (!invite_code || !email || !password) {
-      return res.render("register", { error: "Invite code, email, and password are required." });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-    const code = invite_code.trim();
-
-    await conn.beginTransaction();
-
-    const [codes] = await conn.execute(
-      `SELECT code, is_active, max_uses, uses, expires_at
-       FROM invite_codes
-       WHERE code = ?
-       FOR UPDATE`,
-      [code]
-    );
-
-    if (!codes.length) {
-      await conn.rollback();
-      return res.render("register", { error: "Invalid invite code." });
-    }
-
-    const c = codes[0];
-
-    if (!c.is_active) {
-      await conn.rollback();
-      return res.render("register", { error: "This invite code is inactive." });
-    }
-
-    if (c.expires_at && new Date(c.expires_at) < new Date()) {
-      await conn.rollback();
-      return res.render("register", { error: "This invite code has expired." });
-    }
-
-    if (c.uses >= c.max_uses) {
-      await conn.rollback();
-      return res.render("register", { error: "This invite code has already been used." });
-    }
-
-    const [existing] = await conn.execute(
-      "SELECT id FROM users WHERE email = ? LIMIT 1",
-      [normalizedEmail]
-    );
-
-    if (existing.length) {
-      await conn.rollback();
-      return res.render("register", { error: "That email is already registered." });
-    }
-
-    const hash = await bcrypt.hash(password, 12);
-
-    const [result] = await conn.execute(
-      "INSERT INTO users (email, password_hash, full_name) VALUES (?, ?, ?)",
-      [normalizedEmail, hash, full_name || null]
-    );
-
-    await conn.execute("UPDATE invite_codes SET uses = uses + 1 WHERE code = ?", [code]);
-
-    await conn.commit();
-
-    req.session.userId = result.insertId;
-    return res.redirect("/dashboard");
-  } catch (err) {
-    try { await conn.rollback(); } catch {}
-    console.error(err);
-    return res.render("register", { error: "Registration failed. Try again." });
-  } finally {
-    conn.release();
+    return res.status(201).json({
+      ok: true,
+      id: result.insertId,
+    });
+  } catch (e) {
+    console.error("INSERT ERROR:", e);
+    return res.status(500).json({ ok: false, error: "DB insert failed" });
   }
 });
 
-app.get("/login", (req, res) => {
-  res.render("login", { error: null });
-});
-
-app.post("/login", async (req, res) => {
+// Optional: view recent signins (handy for testing)
+app.get("/api/signins", async (req, res) => {
   try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.render("login", { error: "Email and password are required." });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const [rows] = await pool.execute(
-      "SELECT id, password_hash FROM users WHERE email = ? LIMIT 1",
-      [normalizedEmail]
+    const [rows] = await pool.query(
+      "SELECT id, full_name, phone, email, created_at FROM signins ORDER BY created_at DESC LIMIT 50"
     );
-
-    if (!rows.length) return res.render("login", { error: "Invalid email or password." });
-
-    const ok = await bcrypt.compare(password, rows[0].password_hash);
-    if (!ok) return res.render("login", { error: "Invalid email or password." });
-
-    req.session.userId = rows[0].id;
-    return res.redirect("/dashboard");
-  } catch (err) {
-    console.error(err);
-    return res.render("login", { error: "Login failed. Try again." });
+    return res.json({ ok: true, rows });
+  } catch (e) {
+    console.error("SELECT ERROR:", e);
+    return res.status(500).json({ ok: false, error: "DB read failed" });
   }
 });
 
-app.get("/dashboard", requireLogin, (req, res) => {
-  res.render("dashboard");
-});
-
-app.post("/logout", (req, res) => {
-  req.session.destroy(() => res.redirect("/login"));
-});
-
-const PORT = Number(process.env.PORT || 8080);
-const HOST = "0.0.0.0";
-
+/** -----------------------------
+ *  Start server
+ * ------------------------------*/
 app.listen(PORT, HOST, () => {
   console.log(`API running on http://${HOST}:${PORT}`);
 });
