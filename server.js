@@ -24,15 +24,15 @@ const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
 
 // Railway-provided MySQL vars OR local .env vars
+
 const dbConfig = {
-  host: process.env.MYSQLHOST || process.env.DB_HOST || "127.0.0.1",
+  host: process.env.MYSQLHOST || process.env.DB_HOST,
   port: Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
-  user: process.env.MYSQLUSER || process.env.DB_USER || "root",
+  user: process.env.MYSQLUSER || process.env.DB_USER,
   password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || "",
-  database: process.env.MYSQLDATABASE || process.env.DB_NAME || "signin_db",
-  waitForConnections: true,
-  connectionLimit: 10,
+  database: process.env.MYSQLDATABASE || process.env.DB_NAME || "railway",
 };
+
 
 // Helpful log (does NOT print password)
 console.log("DB:", {
