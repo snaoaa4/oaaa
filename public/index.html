@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign-in Enrollment</title>
+  <title>Enrollment Form</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 40px; max-width: 520px; }
     h1 { margin-bottom: 10px; }
@@ -20,7 +20,8 @@
   <h1>Enrollment Form</h1>
   <div class="small">Please enter your information and submit.</div>
 
-  <form id="enrollForm">
+  <!-- Fallback works even without JS -->
+  <form id="enrollForm" action="/api/signins" method="post">
     <label for="full_name">Full Name</label>
     <input id="full_name" name="full_name" type="text" maxlength="120" required />
 
@@ -54,18 +55,19 @@
     }
 
     form.addEventListener("submit", async (e) => {
+      // Use JS submit so we can show success without leaving the page
       e.preventDefault();
       msgOk.style.display = "none";
       msgErr.style.display = "none";
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Submitting...";
 
       const payload = {
         full_name: document.getElementById("full_name").value.trim(),
         email: document.getElementById("email").value.trim(),
         phone: document.getElementById("phone").value.trim(),
       };
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting...";
 
       try {
         const res = await fetch("/api/signins", {
@@ -77,18 +79,23 @@
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok || !data.ok) {
-          const details = data?.error || "Enrollment failed.";
-          showErr(details);
-        } else {
-          showOk();
-          form.reset();
+          showErr(data.error || "Enrollment failed.");
+          return;
         }
+
+        showOk();
+        form.reset();
       } catch (err) {
         showErr(err?.message);
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = "Submit";
       }
+    });
+
+    // Helpful: surface JS errors
+    window.addEventListener("error", (ev) => {
+      showErr("Page error: " + (ev.message || "Unknown"));
     });
   </script>
 </body>
