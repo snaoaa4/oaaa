@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign-in Enrollment</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; max-width: 520px; }
+    h1 { margin-bottom: 10px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 600; }
+    input { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+    button { margin-top: 16px; padding: 10px 14px; font-size: 16px; cursor: pointer; }
+    .msg { margin-top: 16px; padding: 12px; border-radius: 8px; display: none; }
+    .ok { background: #e8fff0; border: 1px solid #77d39a; }
+    .err { background: #fff0f0; border: 1px solid #e08a8a; }
+    .small { color: #555; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Enrollment Form</h1>
+  <div class="small">Please enter your information and submit.</div>
+
+  <form id="enrollForm">
+    <label for="full_name">Full Name</label>
+    <input id="full_name" name="full_name" type="text" maxlength="120" required />
+
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" maxlength="190" required />
+
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" type="tel" maxlength="30" required />
+
+    <button id="submitBtn" type="submit">Submit</button>
+  </form>
+
+  <div id="msgOk" class="msg ok">Enrolled successfully ✅</div>
+  <div id="msgErr" class="msg err"></div>
+
+  <script>
+    const form = document.getElementById("enrollForm");
+    const submitBtn = document.getElementById("submitBtn");
+    const msgOk = document.getElementById("msgOk");
+    const msgErr = document.getElementById("msgErr");
+
+    function showOk() {
+      msgErr.style.display = "none";
+      msgOk.style.display = "block";
+    }
+
+    function showErr(text) {
+      msgOk.style.display = "none";
+      msgErr.textContent = text || "Something went wrong. Please try again.";
+      msgErr.style.display = "block";
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msgOk.style.display = "none";
+      msgErr.style.display = "none";
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting...";
+
+      const payload = {
+        full_name: document.getElementById("full_name").value.trim(),
+        email: document.getElementById("email").value.trim(),
+        phone: document.getElementById("phone").value.trim(),
+      };
+
+      try {
+        const res = await fetch("/api/signins", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || !data.ok) {
+          const details = data?.error || "Enrollment failed.";
+          showErr(details);
+        } else {
+          showOk();
+          form.reset();
+        }
+      } catch (err) {
+        showErr(err?.message);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Submit";
+      }
+    });
+  </script>
+</body>
+</html>
