@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 /**
  * server.js — Public Sign-In App (Name, Phone, Email) + MySQL
  * Works locally + Railway
@@ -141,9 +143,7 @@ app.get("/api/signins", async (req, res) => {
   }
 });
 
-/** -----------------------------
- *  Start server
- * ------------------------------*/
-app.listen(PORT, HOST, () => {
-  console.log(`API running on http://${HOST}:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`API running on http://0.0.0.0:${PORT}`);
 });
+
