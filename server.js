@@ -190,6 +190,30 @@ app.get("/api/signins", async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+// Fallback for normal HTML form posts (no JS)
+app.post("/enroll", async (req, res) => {
+  const p = getPool();
+  if (!p) return res.redirect("/?error=db_not_configured");
+
+  const full_name = (req.body.full_name || "").trim();
+  const email = (req.body.email || "").trim();
+  const phone = (req.body.phone || "").trim();
+
+  if (!full_name || !email || !phone) {
+    return res.redirect("/?error=missing_fields");
+  }
+
+  try {
+    await p.execute(
+      "INSERT INTO signins (full_name, phone, email) VALUES (?, ?, ?)",
+      [full_name, phone, email]
+    );
+    return res.redirect("/?success=1");
+  } catch (e) {
+    return res.redirect("/?error=" + encodeURIComponent(e.message));
+  }
+});
+
 
 /** -----------------------------
  *  Start server

@@ -17,10 +17,11 @@
   </style>
 </head>
 <body>
-  <h1>Enrollment Form v2</h1>
+  <h1>Enrollment Form</h1>
   <div class="small">Please enter your information and submit.</div>
 
-  <form id="enrollForm">
+  <!-- Works WITHOUT JavaScript (server route /enroll must exist) -->
+  <form id="enrollForm" action="/enroll" method="post">
     <label for="full_name">Full Name</label>
     <input id="full_name" name="full_name" type="text" maxlength="120" required />
 
@@ -37,7 +38,25 @@
   <div id="msgErr" class="msg err"></div>
 
   <script>
-    // Wait until the page is fully loaded, then attach the submit handler
+    // Show messages if we came back from the /enroll redirect (no-JS fallback)
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const ok = document.getElementById("msgOk");
+      const err = document.getElementById("msgErr");
+
+      if (params.get("success") === "1") {
+        ok.style.display = "block";
+      }
+      if (params.get("error")) {
+        ok.style.display = "none";
+        err.textContent = "Error: " + params.get("error");
+        err.style.display = "block";
+      }
+    })();
+  </script>
+
+  <script>
+    // If JavaScript works, we prevent the normal form submit and use fetch to /api/signins
     document.addEventListener("DOMContentLoaded", () => {
       const form = document.getElementById("enrollForm");
       const submitBtn = document.getElementById("submitBtn");
@@ -56,7 +75,8 @@
       }
 
       form.addEventListener("submit", async (e) => {
-        e.preventDefault(); // ✅ prevents navigating to /api/signins
+        // If JS runs, stop default submit to /enroll and do API submit instead
+        e.preventDefault();
 
         msgOk.style.display = "none";
         msgErr.style.display = "none";
@@ -84,10 +104,11 @@
             return;
           }
 
-          showOk();      // ✅ show success
-          form.reset();  // ✅ clear all fields
+          showOk();           // ✅ show success
+          form.reset();       // ✅ clear fields
           document.getElementById("full_name").focus(); // ready for next entry
         } catch (err) {
+          // If fetch fails, show error (user can still submit again)
           showErr(err?.message);
         } finally {
           submitBtn.disabled = false;
