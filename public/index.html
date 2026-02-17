@@ -17,11 +17,10 @@
   </style>
 </head>
 <body>
-  <h1>Enrollment Form</h1>
+  <h1>Enrollment Form v2</h1>
   <div class="small">Please enter your information and submit.</div>
 
-  <!-- Fallback works even without JS -->
-  <form id="enrollForm" action="/api/signins" method="post">
+  <form id="enrollForm">
     <label for="full_name">Full Name</label>
     <input id="full_name" name="full_name" type="text" maxlength="120" required />
 
@@ -34,70 +33,68 @@
     <button id="submitBtn" type="submit">Submit</button>
   </form>
 
-  <div id="msgOk" class="msg ok">Enrolled successfully ✅</div>
+  <div id="msgOk" class="msg ok">Successfully enrolled ✅</div>
   <div id="msgErr" class="msg err"></div>
 
   <script>
-    const form = document.getElementById("enrollForm");
-    const submitBtn = document.getElementById("submitBtn");
-    const msgOk = document.getElementById("msgOk");
-    const msgErr = document.getElementById("msgErr");
+    // Wait until the page is fully loaded, then attach the submit handler
+    document.addEventListener("DOMContentLoaded", () => {
+      const form = document.getElementById("enrollForm");
+      const submitBtn = document.getElementById("submitBtn");
+      const msgOk = document.getElementById("msgOk");
+      const msgErr = document.getElementById("msgErr");
 
-    function showOk() {
-      msgErr.style.display = "none";
-      msgOk.style.display = "block";
-    }
-
-    function showErr(text) {
-      msgOk.style.display = "none";
-      msgErr.textContent = text || "Something went wrong. Please try again.";
-      msgErr.style.display = "block";
-    }
-
-    form.addEventListener("submit", async (e) => {
-      // Use JS submit so we can show success without leaving the page
-      e.preventDefault();
-      msgOk.style.display = "none";
-      msgErr.style.display = "none";
-
-      const payload = {
-        full_name: document.getElementById("full_name").value.trim(),
-        email: document.getElementById("email").value.trim(),
-        phone: document.getElementById("phone").value.trim(),
-      };
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Submitting...";
-
-      try {
-        const res = await fetch("/api/signins", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok || !data.ok) {
-          showErr(data.error || "Enrollment failed.");
-          return;
-        }
-
-        showOk();
-        form.reset();
-      } catch (err) {
-        showErr(err?.message);
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Submit";
+      function showOk() {
+        msgErr.style.display = "none";
+        msgOk.style.display = "block";
       }
-    });
 
-    // Helpful: surface JS errors
-    window.addEventListener("error", (ev) => {
-      showErr("Page error: " + (ev.message || "Unknown"));
+      function showErr(text) {
+        msgOk.style.display = "none";
+        msgErr.textContent = text || "Enrollment failed. Please try again.";
+        msgErr.style.display = "block";
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault(); // ✅ prevents navigating to /api/signins
+
+        msgOk.style.display = "none";
+        msgErr.style.display = "none";
+
+        const payload = {
+          full_name: document.getElementById("full_name").value.trim(),
+          email: document.getElementById("email").value.trim(),
+          phone: document.getElementById("phone").value.trim(),
+        };
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting...";
+
+        try {
+          const res = await fetch("/api/signins", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await res.json().catch(() => ({}));
+
+          if (!res.ok || !data.ok) {
+            showErr(data.error || "Enrollment failed.");
+            return;
+          }
+
+          showOk();      // ✅ show success
+          form.reset();  // ✅ clear all fields
+          document.getElementById("full_name").focus(); // ready for next entry
+        } catch (err) {
+          showErr(err?.message);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit";
+        }
+      });
     });
-alert("JS is running");
   </script>
 </body>
 </html>
