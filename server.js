@@ -1,14 +1,14 @@
-require("dotenv").config();
+"use strict";
 
 /**
- * server.js — Public Sign-In App (Name, Phone, Email) + MySQL
- * Works locally + Railway
+ * server.js - Railway + MySQL (Railway) + Optional static site
+ * CommonJS (require)
  */
 
 require("dotenv").config();
 
-const path = require("path");
 const express = require("express");
+const path = require("path");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
@@ -23,51 +23,18 @@ const app = express();
 const PORT = Number(process.env.PORT || 8080);
 const HOST = "0.0.0.0";
 
-// Railway-provided MySQL vars OR local .env vars
-
-const dbConfig = {
-  host: process.env.MYSQLHOST || process.env.DB_HOST,
-  port: Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
-  user: process.env.MYSQLUSER || process.env.DB_USER,
-  password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || "",
-  database: process.env.MYSQLDATABASE || process.env.DB_NAME || "railway",
-};
-
-
-// Helpful log (does NOT print password)
-console.log("DB:", {
-  host: dbConfig.host,
-  port: String(dbConfig.port),
-  user: dbConfig.user,
-  name: dbConfig.database,
-});
-
 /** -----------------------------
- *  MySQL pool
+ *  Security / Middleware
  * ------------------------------*/
-const pool = mysql.createPool(dbConfig);
-
-/** -----------------------------
- *  Security + middleware
- * ------------------------------*/
-app.use(
-  helmet({
-    // allow your simple inline assets if needed; keep default otherwise
-  })
-);
-
+app.use(helmet());
+app.use(cors({ origin: true })); // adjust later if you want to lock it down
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN || "*",
-  })
-);
-
+app.set("trust proxy", 1);
 app.use(
   rateLimit({
-    windowMs: 60 * 1000, // 1 min
+    windowMs: 60 * 1000,
     max: 120,
     standardHeaders: true,
     legacyHeaders: false,
@@ -75,39 +42,119 @@ app.use(
 );
 
 /** -----------------------------
- *  Public routes
+ *  Static files (optional)
+ *  If you create /public/index.html later, / will work.
+ *  If you don't have it, / will return a helpful message instead of crashing.
  * ------------------------------*/
-app.get("/health", async (req, res) => {
-  // Optional: also test DB connectivity quickly
-  try {
-    await pool.query("SELECT 1");
-    return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ ok: false, db: "down", error: e.message });
-  }
-});
+const publicDir = path.join(__dirname, "public");
+app.use(express.static(publicDir));
 
-// Serve your static site from /public
-app.use(express.static(path.join(__dirname, "public")));
-
-// Home page
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  // If you haven't added public/index.html yet, show a friendly message.
+  const indexPath = path.join(publicDir, "index.html");
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      res
+        .status(200)
+        .send(
+          "API is running. No index.html found yet. Try GET /health or POST /api/signins."
+        );
+    }
+  });
 });
 
 /** -----------------------------
- *  API
+ *  MySQL (Railway-first config)
+ * ------------------------------*/
+function buildDbConfig() {
+  const host = process.env.MYSQLHOST || process.env.DB_HOST;
+  const user = process.env.MYSQLUSER || process.env.DB_USER;
+  const password = process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || "";
+  const database =
+    process.env.MYSQLDATABASE || process.env.DB_NAME || "railway";
+  const port = Number(process.env.MYSQLPORT || process.env.DB_PORT || 3306);
+
+  // If not configured, return null (app still runs)
+  if (!host || !user || !database) return null;
+
+  return { host, user, password, database, port };
+}
+
+let pool = null;
+
+function getPool() {
+  if (pool) return pool;
+
+  const dbConfig = buildDbConfig();
+  if (!dbConfig) return null;
+
+  pool = mysql.createPool({
+    ...dbConfig,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+  });
+
+  return pool;
+}
+
+async function ensureTable() {
+  const p = getPool();
+  if (!p) return;
+
+  // Create table if missing (safe on Railway)
+  const sql = `
+    CREATE TABLE IF NOT EXISTS signins (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      full_name VARCHAR(120) NOT NULL,
+      phone VARCHAR(30) NOT NULL,
+      email VARCHAR(190) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  try {
+    await p.query(sql);
+  } catch (e) {
+    // Do not crash app if DB is temporarily unavailable
+    console.error("DB table ensure failed (continuing):", e.message);
+  }
+}
+
+/** -----------------------------
+ *  Health check
+ * ------------------------------*/
+app.get("/health", async (req, res) => {
+  const p = getPool();
+  if (!p) {
+    return res.json({ ok: true, db: "not_configured" });
+  }
+
+  try {
+    await p.query("SELECT 1");
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.json({ ok: false, db: "down", error: e.message });
+  }
+});
+
+/** -----------------------------
+ *  API: Create a signin
  * ------------------------------*/
 const SigninSchema = z.object({
-  full_name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(7).max(30),
-  email: z.string().trim().email().max(190),
+  full_name: z.string().min(1).max(120),
+  phone: z.string().min(1).max(30),
+  email: z.string().email().max(190),
 });
 
 app.post("/api/signins", async (req, res) => {
+  const p = getPool();
+  if (!p) return res.status(503).json({ ok: false, error: "DB not configured" });
+
   const parsed = SigninSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
+      ok: false,
       error: "Invalid input",
       details: parsed.error.flatten(),
     });
@@ -116,34 +163,38 @@ app.post("/api/signins", async (req, res) => {
   const { full_name, phone, email } = parsed.data;
 
   try {
-    const sql =
-      "INSERT INTO signins (full_name, phone, email) VALUES (?, ?, ?)";
-    const [result] = await pool.execute(sql, [full_name, phone, email]);
+    const [result] = await p.execute(
+      "INSERT INTO signins (full_name, phone, email) VALUES (?, ?, ?)",
+      [full_name, phone, email]
+    );
 
-    return res.status(201).json({
-      ok: true,
-      id: result.insertId,
-    });
+    return res.status(201).json({ ok: true, id: result.insertId });
   } catch (e) {
-    console.error("INSERT ERROR:", e);
-    return res.status(500).json({ ok: false, error: "DB insert failed" });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Optional: view recent signins (handy for testing)
+/** -----------------------------
+ *  API: List recent signins
+ * ------------------------------*/
 app.get("/api/signins", async (req, res) => {
+  const p = getPool();
+  if (!p) return res.status(503).json({ ok: false, error: "DB not configured" });
+
   try {
-    const [rows] = await pool.query(
+    const [rows] = await p.query(
       "SELECT id, full_name, phone, email, created_at FROM signins ORDER BY created_at DESC LIMIT 50"
     );
     return res.json({ ok: true, rows });
   } catch (e) {
-    console.error("SELECT ERROR:", e);
-    return res.status(500).json({ ok: false, error: "DB read failed" });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`API running on http://0.0.0.0:${PORT}`);
+/** -----------------------------
+ *  Start server
+ * ------------------------------*/
+app.listen(PORT, HOST, async () => {
+  console.log(`API running on http://${HOST}:${PORT}`);
+  await ensureTable();
 });
-
